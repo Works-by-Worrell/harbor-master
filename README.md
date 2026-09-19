@@ -10,7 +10,12 @@ For comprehensive architectural design, service boundaries, database schemas, an
 
 ## Architectural Vision & Core Principles
 
-- **Zero-Trust Ingress Ledger (`inbound_files`)**: An immutable PostgreSQL perimeter ledger capturing every payload observed at the edge to protect downstream workers from unvetted load, malformed inputs, and malicious drops while guaranteeing audit provenance.
+- **The Four Pillars of Port Logistics**:
+  - **`Berths`**: Transport/connection channels governing protocols, network endpoints, authentication secrets (SFTP, S3, HTTP streams), and connection pooling bounds.
+  - **`Carriers`**: Intake sources and shipping partner identities defining drop-zone root paths, intake schedules, and expected manifest schemas.
+  - **`DockedPayloads` (`docked_payloads`)**: Immutable perimeter ledger capturing SHA-256 fingerprints, payload byte sizes, raw filenames, arrival timestamps, quarantine status lifecycle (`DOCKED`, `INSPECTING`, `QUARANTINED`, `ADMITTED`), and inspection reports.
+  - **`DischargeRoutes`**: Post-quarantine routing destinations governing where verified, extracted cargo is dispatched (target storage buckets, event streams, downstream fulfillment services).
+- **Zero-Trust Perimeter Ledger (`docked_payloads`)**: An immutable PostgreSQL perimeter ledger capturing every payload observed at the edge to protect downstream workers from unvetted load, malformed inputs, and malicious drops while guaranteeing audit provenance.
 - **Uncle Bob Clean Architecture**: Strict inward dependency flow with decoupled transport protocols, immutable domain models, and swappable infrastructure adapters.
 - **Streaming Resource Isolation**: Memory-bounded ZIP64 streaming extraction and validation (`stevedore-extractor`) preventing container Out-Of-Memory (OOM) failures under heavy cargo drops.
 - **Deterministic Binary Failure Routing**:
@@ -24,10 +29,10 @@ For comprehensive architectural design, service boundaries, database schemas, an
 ```text
 harbor-master/
 ├── modules/
-│   ├── common-domain/          # Shared immutable domain models, value objects, and deterministic contracts
+│   ├── common-domain/          # Shared immutable domain models (Berth, Carrier, DockedPayload, DischargeRoute)
 │   ├── approach-watcher/       # Multi-protocol ingress adapters (SFTP poller, HTTP stream receiver, REST manifest)
 │   ├── stevedore-extractor/    # Memory-safe archive decompression, ZIP64 multi-part unpacking, leaf-file flattening
-│   ├── quarantine-validator/   # Security sieve, XSD/JSON schema validation, tenant verification, quarantine gate
+│   ├── quarantine-validator/   # Security sieve, XSD/JSON schema validation, carrier verification, quarantine gate
 │   └── signal-tower/           # Manifest dispatch coordination, OpenTelemetry metrics, operations webhooks
 ├── deploy/
 │   ├── k8s/                    # Production Kubernetes manifests and resource configurations

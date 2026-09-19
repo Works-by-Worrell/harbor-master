@@ -1,8 +1,8 @@
 # Harbor Master — Architecture Specification & System Manifest
 
-**Document Version:** 1.0.0  
+**Document Version:** 1.1.0  
 **Classification:** Public Domain / Spaceport Maritime Cargo Ingress  
-**Status:** Approved Architecture Baseline  
+**Status:** Approved Architecture Baseline — Full Maritime Domain Model  
 
 ---
 
@@ -13,33 +13,68 @@
 Every payload entering the perimeter is treated as untrusted, isolated immediately upon ingress, fingerprinted with cryptographic verification, inspected via zero-trust validation sieves, and routed deterministically.
 
 ```
-       [ External Transports: SFTP / HTTP Stream / REST Manifest ]
-                                   │
+       [ External Transports: SFTP / HTTP Stream / S3 / REST Manifest ]
+                                    │
+                                    ▼
+                        ┌──────────────────────┐
+                        │   approach-watcher   │◄─── Berths & Carriers Ingress
+                        └──────────┬───────────┘
+                                   │ Records Intake (Status: DOCKED)
                                    ▼
-                       ┌──────────────────────┐
-                       │   approach-watcher   │◄─── Perimeter Ingress
-                       └──────────┬───────────┘
-                                  │ Records Intake
-                                  ▼
-                    ┌────────────────────────────┐
-                    │  PostgreSQL: inbound_files │ (Immutable Data Perimeter)
-                    └─────────────┬──────────────┘
-                                  │
-                  ┌───────────────┴───────────────┐
-                  ▼                               ▼
-       ┌─────────────────────┐        ┌───────────────────────┐
-       │ stevedore-extractor │        │  quarantine-validator │
-       │ (Stream Decompress) │───────►│  (Schema & Tenant Gate│
-       └─────────────────────┘        └───────────┬───────────┘
-                                                  │
-                                                  ▼
-                                      ┌───────────────────────┐
-                                      │     signal-tower      │
-                                      │ (Dispatch / Telemetry)│
-                                      └───────────────────────┘
+                     ┌────────────────────────────┐
+                     │PostgreSQL: docked_payloads │ (Immutable Perimeter Ledger)
+                     └─────────────┬──────────────┘
+                                   │
+                   ┌───────────────┴───────────────┐
+                   ▼                               ▼
+        ┌─────────────────────┐        ┌───────────────────────┐
+        │ stevedore-extractor │        │  quarantine-validator │
+        │ (Stream Decompress) │───────►│(Carrier & Schema Sieve│
+        └─────────────────────┘        └───────────┬───────────┘
+                                                   │
+                                    ┌──────────────┴──────────────┐
+                                    ▼                             ▼
+                        ┌───────────────────────┐     ┌───────────────────────┐
+                        │     signal-tower      │     │    Quarantine Bay     │
+                        │ (DischargeRoute / Ops)│     │(#cargo-ops-exceptions)│
+                        └───────────────────────┘     └───────────────────────┘
 ```
 
-### Core Technology Stack
+### 1.1 The Four Pillars of Port Logistics
+
+The system domain model is strictly anchored in four core maritime logistics pillars:
+
+1. **`Berths`** (Transport/Connection Channel): The physical or virtual ingress conduits. Governs transport protocols (`SFTP`, `HTTP_STREAM`, `S3_BUCKET`, `REST`, `MANUAL_DROP`), network endpoints, authentication secrets (SFTP credentials, S3 IAM/keys, HTTP bearer tokens), and connection pooling bounds.
+2. **`Carriers`** (Intake Sources/Shipping Partners): The external consignor/carrier identity and contracts. Defines the shipping partner identity, drop-zone root path within the assigned Berth, intake schedule/cadence (cron), and expected manifest schema contract.
+3. **`DockedPayloads`** (Immutable Perimeter Ledger): The core perimeter ledger table (`docked_payloads`). Captures SHA-256 fingerprint, payload byte size, raw filename, arrival timestamp, quarantine status lifecycle (`DOCKED`, `INSPECTING`, `QUARANTINED`, `ADMITTED`), and JSONB inspection reports. Records every payload ever docked at the perimeter.
+4. **`DischargeRoutes`** (Routing Destinations): Post-quarantine dispatch routing governing where verified, extracted cargo goes once admitted (target storage buckets, event streams, downstream fulfillment services, webhook endpoints).
+
+### 1.2 Ingress to Discharge Lifecycle Flow
+
+```mermaid
+flowchart LR
+    subgraph Ingress["1. Ingress Conduits"]
+        B["Conduit / Berth<br/><i>(Transport Protocol & Endpoint)</i>"]
+        C["Carrier<br/><i>(Shipping Partner & Drop-Zone)</i>"]
+        B -->|hosts connection channel| C
+    end
+
+    subgraph Perimeter["2. Perimeter Quarantine Sieve"]
+        DP["DockedPayload<br/><i>(docked_payloads ledger)</i><br/>• SHA-256 Fingerprint<br/>• Status: DOCKED ➔ INSPECTING"]
+        Sieve{"Perimeter Sieve<br/><i>(stevedore + validator)</i>"}
+        C -->|docks raw cargo| DP
+        DP -->|inspects & unpacks| Sieve
+    end
+
+    subgraph Discharge["3. Cargo Discharge & Alerting"]
+        DR["DischargeRoute<br/><i>(Target Destination)</i><br/>• Storage / Event Stream / Fulfillment"]
+        QBay["Quarantine Bay<br/><i>(#cargo-ops-exceptions)</i>"]
+        Sieve -->|ADMITTED| DR
+        Sieve -->|QUARANTINED| QBay
+    end
+```
+
+### 1.3 Core Technology Stack
 - **Language & Runtime:** Kotlin 2.x on Java 21 LTS (JVM 21 virtual threads / Project Loom for high-concurrency I/O).
 - **Core Persistence:** PostgreSQL 16+ (ACID perimeter ledger, JSONB validation reports, hash index lookups).
 - **Architecture Standard:** Uncle Bob Clean Architecture (strict inward dependency rule, immutable domain models, decoupled protocol adapters).
@@ -52,11 +87,11 @@ Every payload entering the perimeter is treated as untrusted, isolated immediate
 ```
 harbor-master/
 ├── modules/
-│   ├── common-domain/          # Core entities, value objects, failure taxonomy, domain events
+│   ├── common-domain/          # Core entities (Berth, Carrier, DockedPayload, DischargeRoute), value objects, failure taxonomy
 │   ├── approach-watcher/       # Multi-protocol intake adapters (SFTP, HTTP Streaming, REST)
 │   ├── stevedore-extractor/    # Streaming decompression, archive flattening, ZIP64 unpacker
-│   ├── quarantine-validator/   # Schema sieve (XSD/JSON), tenant isolation, security gate
-│   └── signal-tower/           # Fleet telemetry, operational dispatcher, alerting webhooks
+│   ├── quarantine-validator/   # Schema sieve (XSD/JSON), carrier isolation, security gate
+│   └── signal-tower/           # Fleet telemetry, discharge dispatcher, alerting webhooks
 ├── deploy/
 │   ├── k8s/                    # Kubernetes manifests (Deployments, Services, ConfigMaps)
 │   └── minikube/               # Local developer sandbox overlays & mock dependencies
@@ -65,22 +100,25 @@ harbor-master/
 ```
 
 ### 2.1 `common-domain`
-The foundational, dependency-free core containing immutable domain models, value objects, and deterministic business rules.
-- **`InboundFile`**: Root aggregate representing an unverified raw payload arriving at the dock, stamped with a deterministic UUID, SHA-256 fingerprint, byte size, protocol origin, and tenant identity.
+The foundational, dependency-free core containing immutable domain models, value objects, and deterministic business rules:
+- **`Berth`**: Root aggregate representing the transport conduit, protocol endpoints, credentials reference, and connection limits.
+- **`Carrier`**: Aggregate representing an external shipping partner, drop-zone root path, intake schedule cadence, and manifest schema contracts.
+- **`DockedPayload`**: Root aggregate representing an unverified raw payload arriving at the dock, stamped with a deterministic UUID, SHA-256 fingerprint, byte size, raw filename, arrival timestamp, quarantine status (`DOCKED`, `INSPECTING`, `QUARANTINED`, `ADMITTED`), and inspection reports.
+- **`DischargeRoute`**: Value object and entity governing post-admission cargo routing destinations (storage buckets, event streams, fulfillment services).
 - **`CargoManifest` & `ManifestItem`**: Strongly-typed domain representations of bill-of-lading cargo contents, container manifests, and declared itemized cargo specs.
 - **`ValidationResult`**: Monadic outcome (`Admitted` vs `Quarantined`) encapsulating zero-or-more validation rule violations, schema errors, or policy breaches.
 - **`FailureClassification`**: First-class taxonomy splitting operational disruptions into deterministic categories (see Section 4).
-- **`TenantMetadata`**: Tenant identifiers, credential scopes, schema version bindings, and throughput quota allocations.
 
 ### 2.2 `approach-watcher`
-The perimeter sentinel. Operates non-blocking intake listeners and active pollers across heterogeneous transport protocols:
-- **SFTP Inbound Poller**: Secure polling worker inspecting remote drop directories, acquiring lock tokens, streaming remote octets, and performing atomic handoffs.
+The perimeter sentinel. Operates non-blocking intake listeners and active pollers across heterogeneous transport protocols bound to registered `Berths` and `Carriers`:
+- **SFTP Inbound Poller**: Secure polling worker inspecting carrier remote drop directories, acquiring lock tokens, streaming remote octets, and performing atomic handoffs.
 - **HTTP Chunked Stream Receiver**: Reactive HTTP endpoints accepting streaming binary uploads without holding full payloads in heap memory.
 - **REST Manifest Intake**: Synchronous JSON/XML manifest submission endpoints for immediate pre-clearance validation.
-- **Perimeter Registrar**: Writes raw incoming drop metadata into the immutable `inbound_files` ledger prior to handoff.
+- **Perimeter Registrar**: Writes raw incoming drop metadata into the immutable `docked_payloads` ledger prior to handoff, initializing quarantine status to `DOCKED`.
 
 ### 2.3 `stevedore-extractor`
 The cargo unloader and unpacker. Specializes in archive inspection and decompression under strict resource ceilings:
+- **Payload Inspection Hand-off**: Transitions `docked_payloads` status to `INSPECTING`.
 - **ZIP64 Multi-Part Unpacking**: Robust handling of large compressed archives, nested structures, and multi-part archive volumes.
 - **Leaf-File Flattening**: Traverses hierarchical directory structures within archives, flattening payload elements into deterministic canonical paths while neutralizing directory traversal attacks (`../` zip slips).
 - **Memory-Safe Streaming Decompression**: Implements constant-memory decompression streams. Never loads entire multi-gigabyte archives into the JVM heap, safeguarding container runtimes against Out-Of-Memory (OOM) termination.
@@ -88,63 +126,192 @@ The cargo unloader and unpacker. Specializes in archive inspection and decompres
 
 ### 2.4 `quarantine-validator`
 The zero-trust security sieve and manifest gatekeeper:
-- **Schema Validation Sieve**: Validates payload structures against strict XSD (XML) and JSON Schemas versioned per tenant contract.
-- **Tenant Verification**: Asserts cryptographic or header provenance against tenant registry white-lists.
-- **Quarantine Isolation Gate**: Payloads that breach schema constraints or contain malformed declarations are immediately locked into quarantine status. Quarantined payloads are isolated from downstream processing pipelines while retaining full raw bytes for forensic analysis.
+- **Schema Validation Sieve**: Validates payload structures against strict XSD (XML) and JSON Schemas versioned per carrier contract.
+- **Carrier Verification**: Asserts cryptographic or header provenance against carrier registry configurations.
+- **Quarantine Isolation Gate**: Transitions `docked_payloads` to `ADMITTED` upon clean inspection, or locks them into `QUARANTINED` status if constraints are breached. Quarantined payloads are isolated from downstream fulfillment pipelines while retaining full raw bytes and diagnostic `inspection_reports` JSONB for forensic analysis.
 
 ### 2.5 `signal-tower`
 The operational dispatcher, alerting beacon, and telemetry hub:
-- **Manifest Dispatcher**: Dispatches verified (`ADMITTED`) cargo manifests to downstream internal harbor routing systems and storage pools.
-- **Telemetry & Metrics**: Emits OpenTelemetry metrics, Prometheus scrapable gauges (throughput, ingress latency, quarantine rate), and structured audit logs.
-- **Operational Notifier**: Routes alerts according to failure taxonomy: operational system outages to infrastructure alerts, data anomalies to cargo operations webhooks.
+- **Discharge Dispatcher**: Routes verified (`ADMITTED`) cargo manifests and extracted items along carrier-configured `DischargeRoutes` to internal fleet operations, object stores, or event streams.
+- **Telemetry & Metrics**: Emits OpenTelemetry metrics, Prometheus scrapable gauges (intake throughput, ingress latency, quarantine rate), and structured audit logs.
+- **Operational Notifier**: Routes alerts according to failure taxonomy: operational system outages to infrastructure alerts, cargo data anomalies to `#cargo-ops-exceptions` webhooks.
 
 ---
 
-## 3. The Immutable Data Perimeter (`inbound_files`)
+## 3. Port Logistics Domain Model & Perimeter Relational Schema
 
-The `inbound_files` table serves as the immutable gatekeeper ledger at the edge of the harbor.
+The PostgreSQL perimeter schema maintains strict referential integrity across the 4 core maritime pillars, anchoring every byte entering the system to its source Berth, Carrier identity, and downstream Discharge Routes.
 
 ### 3.1 Architectural Rationale
-1. **Zero-Trust Ingress Ledger**: Every byte stream touching the harbor perimeter is recorded before downstream processing. If downstream workers fail, crash, or are restarted, the perimeter record remains intact.
-2. **Protection Against Downstream Exhaustion**: By asserting SHA-256 idempotency at the perimeter, duplicate or re-delivered large files are deduplicated or referenced immediately without triggering duplicate extraction cycles.
-3. **Forensic Audit Provenance**: Stores raw filename, declared tenant, transport protocol, hash, file size, and structured validation diagnostic reports (`JSONB`). This enables non-repudiation and post-incident investigation for corrupted cargo.
-4. **Decoupled Pipeline Hand-off**: Downstream workers poll or receive event notifications keyed by immutable `inbound_files.id`, decoupling ingest velocity from extraction and validation velocity.
+1. **Zero-Trust Ingress Ledger (`docked_payloads`)**: Every byte stream touching the harbor perimeter is recorded before downstream processing. If downstream workers fail, crash, or restart, the perimeter record remains intact.
+2. **Deduplication & Replay Defense**: By asserting SHA-256 idempotency at the perimeter (`payload_hash_sha256`), duplicate or re-delivered cargo drops are deduplicated or referenced immediately without triggering redundant extraction cycles.
+3. **Forensic Audit Provenance**: Stores raw filename, carrier identity, arrival timestamp, quarantine lifecycle status, file size, and structured inspection diagnostic reports (`inspection_reports` JSONB). This guarantees non-repudiation and post-incident investigation for damaged or malicious cargo.
+4. **Decoupled Pipeline Hand-off**: Downstream workers poll or receive event notifications keyed by immutable `docked_payloads.id`, decoupling ingest velocity from extraction, validation, and discharge velocity.
+5. **Dynamic Routing Decoupling**: Separates the intake channel (`berths`), carrier contract (`carriers`), immutable perimeter history (`docked_payloads`), and outbound fulfillment destinations (`discharge_routes`).
 
-### 3.2 PostgreSQL Schema Definition
+### 3.2 Entity Relationship Model
+
+```mermaid
+erDiagram
+    BERTHS ||--o{ CARRIERS : "hosts / connects"
+    CARRIERS ||--o{ DOCKED_PAYLOADS : "delivers"
+    CARRIERS ||--o{ DISCHARGE_ROUTES : "configures"
+
+    BERTHS {
+        UUID id PK
+        VARCHAR berth_code UK
+        VARCHAR protocol
+        TEXT endpoint_uri
+        VARCHAR auth_secret_ref
+        JSONB connection_pool_bounds
+        BOOLEAN is_active
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    CARRIERS {
+        UUID id PK
+        VARCHAR carrier_code UK
+        VARCHAR name
+        UUID berth_id FK
+        TEXT drop_zone_path
+        VARCHAR intake_schedule_cron
+        VARCHAR manifest_schema_ref
+        BOOLEAN is_active
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    DOCKED_PAYLOADS {
+        UUID id PK
+        UUID carrier_id FK
+        CHAR payload_hash_sha256
+        VARCHAR raw_filename
+        BIGINT payload_size_bytes
+        VARCHAR quarantine_status
+        JSONB inspection_reports
+        TEXT storage_uri
+        TIMESTAMPTZ arrived_at
+        TIMESTAMPTZ updated_at
+    }
+
+    DISCHARGE_ROUTES {
+        UUID id PK
+        UUID carrier_id FK
+        VARCHAR route_code
+        VARCHAR destination_type
+        TEXT destination_uri
+        JSONB route_config
+        BOOLEAN is_active
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+```
+
+### 3.3 PostgreSQL Perimeter DDL
 
 ```sql
-CREATE TABLE inbound_files (
+-- ============================================================================
+-- 1. BERTHS (Transport / Connection Channel)
+-- ============================================================================
+CREATE TABLE berths (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    berth_code              VARCHAR(64) UNIQUE NOT NULL,
+    protocol                VARCHAR(32) NOT NULL,
+    endpoint_uri            TEXT NOT NULL,
+    auth_secret_ref         VARCHAR(255),
+    connection_pool_bounds  JSONB,
+    is_active               BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_berth_protocol CHECK (
+        protocol IN ('SFTP', 'HTTP_STREAM', 'S3_BUCKET', 'REST', 'MANUAL_DROP')
+    )
+);
+
+CREATE INDEX idx_berths_protocol_active 
+    ON berths (protocol, is_active);
+
+-- ============================================================================
+-- 2. CARRIERS (Intake Sources / Shipping Partners)
+-- ============================================================================
+CREATE TABLE carriers (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    carrier_code            VARCHAR(64) UNIQUE NOT NULL,
+    name                    VARCHAR(255) NOT NULL,
+    berth_id                UUID NOT NULL REFERENCES berths(id) ON DELETE RESTRICT,
+    drop_zone_path          TEXT NOT NULL,
+    intake_schedule_cron    VARCHAR(64),
+    manifest_schema_ref     VARCHAR(255) NOT NULL,
+    is_active               BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_carriers_berth_id 
+    ON carriers (berth_id);
+
+CREATE INDEX idx_carriers_code_active 
+    ON carriers (carrier_code, is_active);
+
+-- ============================================================================
+-- 3. DOCKED PAYLOADS (Immutable Perimeter Ledger)
+-- ============================================================================
+CREATE TABLE docked_payloads (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    carrier_id              UUID NOT NULL REFERENCES carriers(id) ON DELETE RESTRICT,
     payload_hash_sha256     CHAR(64) NOT NULL,
     raw_filename            VARCHAR(255) NOT NULL,
     payload_size_bytes      BIGINT NOT NULL CHECK (payload_size_bytes >= 0),
-    intake_protocol         VARCHAR(32) NOT NULL,
-    tenant_id               VARCHAR(64) NOT NULL,
-    quarantine_status       VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-    validation_errors       JSONB,
+    quarantine_status       VARCHAR(32) NOT NULL DEFAULT 'DOCKED',
+    inspection_reports      JSONB,
     storage_uri             TEXT,
-    received_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    arrived_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT chk_intake_protocol CHECK (
-        intake_protocol IN ('SFTP', 'HTTP_STREAM', 'REST', 'MANUAL_DROP')
-    ),
     CONSTRAINT chk_quarantine_status CHECK (
-        quarantine_status IN ('PENDING', 'ADMITTED', 'QUARANTINED', 'REJECTED')
+        quarantine_status IN ('DOCKED', 'INSPECTING', 'QUARANTINED', 'ADMITTED')
     )
 );
 
 -- Indexing for deduplication and rapid hash lookups
-CREATE INDEX idx_inbound_files_hash 
-    ON inbound_files (payload_hash_sha256);
+CREATE INDEX idx_docked_payloads_hash 
+    ON docked_payloads (payload_hash_sha256);
 
 -- Indexing for worker polling and quarantine triaging
-CREATE INDEX idx_inbound_files_tenant_status 
-    ON inbound_files (tenant_id, quarantine_status);
+CREATE INDEX idx_docked_payloads_carrier_status 
+    ON docked_payloads (carrier_id, quarantine_status);
+
+CREATE INDEX idx_docked_payloads_status 
+    ON docked_payloads (quarantine_status);
 
 -- Indexing for time-series auditing and cleanup sweeps
-CREATE INDEX idx_inbound_files_received_at 
-    ON inbound_files (received_at DESC);
+CREATE INDEX idx_docked_payloads_arrived_at 
+    ON docked_payloads (arrived_at DESC);
+
+-- ============================================================================
+-- 4. DISCHARGE ROUTES (Routing Destinations)
+-- ============================================================================
+CREATE TABLE discharge_routes (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    carrier_id              UUID NOT NULL REFERENCES carriers(id) ON DELETE CASCADE,
+    route_code              VARCHAR(64) NOT NULL,
+    destination_type        VARCHAR(32) NOT NULL,
+    destination_uri         TEXT NOT NULL,
+    route_config            JSONB,
+    is_active               BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_carrier_route UNIQUE (carrier_id, route_code),
+    CONSTRAINT chk_discharge_destination_type CHECK (
+        destination_type IN ('STORAGE_BUCKET', 'EVENT_STREAM', 'FULFILLMENT_SERVICE', 'REST_WEBHOOK')
+    )
+);
+
+CREATE INDEX idx_discharge_routes_carrier 
+    ON discharge_routes (carrier_id, is_active);
 ```
 
 ---
@@ -155,20 +322,20 @@ To maintain high availability and prevent alert fatigue, system anomalies are st
 
 ```
                             [ Ingress Exception ]
-                                      │
-                   Is the fault in code/infrastructure?
-                                ╱          ╲
-                            YES              NO
-                            ╱                  ╲
-                           ▼                    ▼
-               ┌──────────────────────┐    ┌──────────────────────┐
-               │     System Fault     │    │    Data Exception    │
-               │  (Infrastructure/IO) │    │  (Payload/Contract)  │
-               └──────────┬───────────┘    └──────────┬───────────┘
-                          │                           │
-                          ▼                           ▼
-                 PagerDuty / SRE Paging       Discord Webhook Alert:
-                 Escalation Tier 1            #cargo-ops-exceptions
+                                       │
+                    Is the fault in code/infrastructure?
+                                 ╱          ╲
+                             YES              NO
+                             ╱                  ╲
+                            ▼                    ▼
+                ┌──────────────────────┐    ┌──────────────────────┐
+                │     System Fault     │    │    Data Exception    │
+                │  (Infrastructure/IO) │    │  (Payload/Contract)  │
+                └──────────┬───────────┘    └──────────┬───────────┘
+                           │                           │
+                           ▼                           ▼
+                  PagerDuty / SRE Paging       Discord Webhook Alert:
+                  Escalation Tier 1            #cargo-ops-exceptions
 ```
 
 ### 4.1 System Faults (Infrastructure Failure)
@@ -176,41 +343,41 @@ To maintain high availability and prevent alert fatigue, system anomalies are st
 - **Triggers**:
   - Local disk full / ephemeral storage volume exhaustion.
   - PostgreSQL database connection pool starvation or host unreachable.
-  - Network I/O timeout during SFTP transport handshake.
+  - Network I/O timeout during SFTP transport handshake at a Berth.
   - Worker pod OOM (Out Of Memory) or container crash.
-- **Resolution Path**: PagerDuty / SRE on-call rotation. The system enters exponential backoff and leaves the unverified payload in `PENDING` state for automated retry.
+- **Resolution Path**: PagerDuty / SRE on-call rotation. The system enters exponential backoff and leaves the unverified payload in its current state (`DOCKED` or `INSPECTING`) for automated retry.
 
 ### 4.2 Data Exceptions (Cargo Contract Failure)
 - **Definition**: The infrastructure is healthy, but the submitted cargo breaches security, validation, schema, or structural constraints.
 - **Triggers**:
-  - Malformed XML/JSON failing canonical XSD or JSON Schema validation.
+  - Malformed XML/JSON failing canonical XSD or JSON Schema validation per carrier contract.
   - Corrupted archive (CRC failure, truncated ZIP, nested zip-slip traversal attempt).
-  - Unrecognized or unauthorized `tenant_id`.
+  - Unrecognized or unauthorized `carrier_code` / `carrier_id`.
   - Empty payload or expansion bomb ratio exceeded.
-- **Resolution Path**: The payload is stamped with `quarantine_status = 'QUARANTINED'`, validation errors are stored as structured JSONB, and a notification is dispatched to operations:
+- **Resolution Path**: The payload is stamped with `quarantine_status = 'QUARANTINED'`, validation errors are stored as structured JSONB in `inspection_reports`, and a notification is dispatched to operations:
   - **Destination**: Discord Webhook `#cargo-ops-exceptions`.
-  - **Payload**: Tenant ID, Raw Filename, File Size, SHA-256 Fingerprint, Error Diagnostic Summary.
-  - **Action**: No engineering pager is alerted; business/cargo operations staff contact the vendor/tenant for re-transmission.
+  - **Payload**: Carrier ID, Carrier Code, Raw Filename, File Size, SHA-256 Fingerprint, Error Diagnostic Summary.
+  - **Action**: No engineering pager is alerted; business/cargo operations staff contact the shipping carrier/vendor for re-transmission.
 
 ---
 
 ## 5. Minikube & Container Topology
 
 ### 5.1 Ephemeral Batch Worker Pattern
-To prevent unbounded memory growth and cross-tenant resource contamination, archive extraction and schema validation execute inside constrained worker boundaries:
+To prevent unbounded memory growth and cross-carrier resource contamination, archive extraction and schema validation execute inside constrained worker boundaries:
 - **Streaming Handlers**: Streaming chunked decoders with max heap configured to `-Xmx512m` per worker pod.
-- **Single-File Isolation**: Processing is scoped per individual `inbound_files` record. A corrupted file or memory leak cannot compromise peer workers.
+- **Single-Payload Isolation**: Processing is scoped per individual `docked_payloads` record. A corrupted archive or memory leak cannot compromise peer workers.
 - **Memory Cgroups**: Kubernetes container resource limits set to `limits.memory: 768Mi` and `requests.memory: 256Mi`.
 
 ### 5.2 Local Minikube Topology
 The local development environment (`deploy/minikube/`) replicates the production cluster:
-1. **`harbor-postgres`**: StatefulSet running PostgreSQL 16 with pre-mounted migrations initializing `inbound_files`.
-2. **`mock-sftp-dock`**: Internal SFTP server pre-loaded with sample vendor drop boxes and synthetic manifests.
-3. **`harbor-master-approach`**: Pod exposing ingress ports for HTTP and polling `mock-sftp-dock`.
-4. **`harbor-master-stevedore`**: Worker deployment consuming intake jobs from the perimeter queue.
+1. **`harbor-postgres`**: StatefulSet running PostgreSQL 16 with pre-mounted migrations initializing `berths`, `carriers`, `docked_payloads`, and `discharge_routes`.
+2. **`mock-sftp-dock`**: Internal SFTP server pre-loaded with sample carrier drop boxes and synthetic manifests.
+3. **`harbor-master-approach`**: Pod exposing ingress ports for HTTP and polling `mock-sftp-dock` berths.
+4. **`harbor-master-stevedore`**: Worker deployment consuming docked intake jobs from the perimeter ledger.
 5. **ConfigMaps & Secrets**:
    - `harbor-config`: Log levels, schema directory paths, expansion caps, webhook endpoints.
-   - `harbor-secrets`: Database credentials, SFTP private keys.
+   - `harbor-secrets`: Database credentials, SFTP private keys, berth connection tokens.
 
 ---
 
@@ -228,21 +395,21 @@ Phase 2: quarantine-validator (Zero-trust schema sieve & quarantine gates)
 Phase 3: stevedore-extractor (Memory-bounded streaming unpacker & flattener)
     │
     ▼
-Phase 4: approach-watcher (SFTP poller, HTTP stream receiver, REST endpoints)
+Phase 4: approach-watcher (Berth poller, HTTP stream receiver, REST endpoints)
     │
     ▼
-Phase 5: signal-tower & Orchestration (Dispatch, Minikube manifests & telemetry)
+Phase 5: signal-tower & Discharge Orchestration (DischargeRoute dispatch & telemetry)
 ```
 
 1. **Phase 1: `common-domain` & Database Ledger**
-   - Implement domain entities (`InboundFile`, `CargoManifest`, `ManifestItem`, `ValidationResult`).
-   - Define database migrations for `inbound_files` table with appropriate indexes and constraints.
+   - Implement domain entities (`Berth`, `Carrier`, `DockedPayload`, `DischargeRoute`, `CargoManifest`, `ManifestItem`, `ValidationResult`).
+   - Define database migrations for `berths`, `carriers`, `docked_payloads`, and `discharge_routes` tables with appropriate foreign keys, indexes, and check constraints.
    - Establish unit test fixtures for domain immutability and contract testing.
 
 2. **Phase 2: `quarantine-validator` Schema Sieve**
    - Build XSD and JSON schema validation engine.
-   - Implement tenant resolution and schema version matching.
-   - Implement `ValidationResult` compiler writing diagnostic error trees into JSONB.
+   - Implement carrier resolution and manifest schema version matching.
+   - Implement `ValidationResult` compiler writing diagnostic error trees into `inspection_reports` JSONB.
 
 3. **Phase 3: `stevedore-extractor` Streaming Unpacker**
    - Build memory-safe ZIP64 streaming unpacker with zip-slip path sanitization.
@@ -250,11 +417,11 @@ Phase 5: signal-tower & Orchestration (Dispatch, Minikube manifests & telemetry)
    - Implement directory leaf-file flattening into canonical manifest item streams.
 
 4. **Phase 4: `approach-watcher` Ingress Conduits**
-   - Build reactive SFTP client with remote locking and atomic drop acquisition.
+   - Build reactive SFTP client with remote locking and atomic carrier drop acquisition.
    - Implement HTTP streaming payload intake with SHA-256 hashing on-the-fly.
-   - Connect ingress events to `inbound_files` insertion.
+   - Connect ingress events to `docked_payloads` insertion with initial `quarantine_status = 'DOCKED'`.
 
-5. **Phase 5: `signal-tower` & Deployment Orchestration**
-   - Build manifest dispatch pipeline for admitted payloads.
-   - Implement Discord webhook dispatcher for `#cargo-ops-exceptions`.
+5. **Phase 5: `signal-tower` & Discharge Orchestration**
+   - Build manifest dispatch pipeline routing `ADMITTED` payloads along configured `DischargeRoutes`.
+   - Implement Discord webhook dispatcher for `QUARANTINED` cargo alerts to `#cargo-ops-exceptions`.
    - Package Minikube deployment manifests, mock SFTP server, and end-to-end integration tests.
