@@ -148,7 +148,9 @@ The zero-trust security sieve and manifest gatekeeper:
 The operational dispatcher, alerting beacon, and telemetry hub:
 - **Discharge Dispatcher**: Routes verified (`ADMITTED`) cargo manifests and extracted items along carrier-configured `DischargeRoutes` to internal fleet operations, object stores, or event streams.
 - **Telemetry & Metrics**: Emits OpenTelemetry metrics, Prometheus scrapable gauges (intake throughput, ingress latency, quarantine rate), and structured audit logs.
-- **Operational Notifier**: Routes alerts according to failure taxonomy: operational system outages to infrastructure alerts, cargo data anomalies to `#cargo-ops-exceptions` webhooks.
+- **Decoupled Operational Notification Conduits**: Formally routes telemetry and failure alerts across two decoupled Discord webhook conduits based on the binary failure taxonomy:
+  - **Data Exceptions Conduit (`DISCORD_WEBHOOK_OPS_EXCEPTIONS`)**: Targets `#cargo-ops-exceptions`. Relays schema validation failures, malformed manifests, corrupted archive payload structures, and unknown/unauthorized carrier codes to business operations and carrier support with human-readable error lists (no stack traces).
+  - **Technical Faults Conduit (`DISCORD_WEBHOOK_TECH_FAULTS`)**: Targets `#harbor-tech-faults` (or `#harbor-sre-alerts`). Relays infrastructure failures, HikariCP connection pool exhaustion, database downtime, object storage socket/timeout errors, scratch disk capacity alerts, and unhandled runtime exceptions to engineering and SRE with node IDs, backoff states, and full stack traces.
 
 ---
 
@@ -336,9 +338,9 @@ CREATE INDEX idx_discharge_routes_carrier
 
 ---
 
-## 4. Binary Failure Taxonomy
+## 4. Binary Failure Routing & Operational Taxonomy
 
-To maintain high availability and prevent alert fatigue, system anomalies are strictly bifurcated into two mutually exclusive operational domains:
+To maintain high availability, prevent alert fatigue, and ensure operational segregation, system anomalies are strictly bifurcated into two mutually exclusive domains and dispatched via decoupled Discord webhook conduits:
 
 ```
                             [ Ingress Exception ]
@@ -349,35 +351,67 @@ To maintain high availability and prevent alert fatigue, system anomalies are st
                              ╱                  ╲
                             ▼                    ▼
                 ┌──────────────────────┐    ┌──────────────────────┐
-                │     System Fault     │    │    Data Exception    │
-                │  (Infrastructure/IO) │    │  (Payload/Contract)  │
+                │   Technical Fault    │    │    Data Exception    │
+                │ (Infrastructure/IO)  │    │  (Payload/Contract)  │
                 └──────────┬───────────┘    └──────────┬───────────┘
                            │                           │
                            ▼                           ▼
-                  PagerDuty / SRE Paging       Discord Webhook Alert:
-                  Escalation Tier 1            #cargo-ops-exceptions
+                 Discord Webhook Conduit:    Discord Webhook Conduit:
+                  #harbor-tech-faults         #cargo-ops-exceptions
+             (DISCORD_WEBHOOK_TECH_FAULTS) (DISCORD_WEBHOOK_OPS_EXCEPTIONS)
+                           │                           │
+                           ▼                           ▼
+                  PagerDuty / SRE Paging      Business Ops / Support
+                  (Engineering Escalation)      (Carrier Outreach)
 ```
 
-### 4.1 System Faults (Infrastructure Failure)
-- **Definition**: Failures caused by system environment, infrastructure degradation, software bugs, or resource starvation where the inbound cargo might be completely valid.
-- **Triggers**:
-  - Local disk full / ephemeral storage volume exhaustion.
-  - PostgreSQL database connection pool starvation or host unreachable.
-  - Network I/O timeout during SFTP transport handshake at a Berth.
-  - Worker pod OOM (Out Of Memory) or container crash.
-- **Resolution Path**: PagerDuty / SRE on-call rotation. The system enters exponential backoff and leaves the unverified payload in its current state (`DOCKED` or `INSPECTING`) for automated retry.
+### 4.1 Technical Faults Conduit (`DISCORD_WEBHOOK_TECH_FAULTS`)
+- **Conduit Variable**: `DISCORD_WEBHOOK_TECH_FAULTS`
+- **Target Channel**: `#harbor-tech-faults` (or `#harbor-sre-alerts`)
+- **Target Audience**: Engineering / SRE
+- **Domain & Triggers**: Failures caused by system environment, infrastructure degradation, software bugs, or resource starvation where the inbound cargo might be completely valid:
+  - Infrastructure failures, database downtime, or HikariCP connection pool exhaustion.
+  - Object storage socket/timeout errors and network I/O timeouts during SFTP transport handshakes at a Berth.
+  - Scratch disk / ephemeral storage volume capacity alerts.
+  - Unhandled runtime exceptions, worker pod OOM (Out Of Memory), or container crashes.
+- **Payload Content**:
+  - Severity level (`CRITICAL`, `ERROR`, `WARNING`)
+  - Fault type / exception classification
+  - Payload UUID (if fault occurred during active payload handling)
+  - Host / pod node ID
+  - Full stack trace
+  - Retry backoff state (attempt count, next retry interval)
+- **Operational Resolution Path**: PagerDuty / SRE on-call rotation is alerted alongside the Discord notification. The system enters exponential backoff and leaves the unverified payload in its current state (`DOCKED` or `INSPECTING`) for automated retry without corrupting perimeter ledger state.
 
-### 4.2 Data Exceptions (Cargo Contract Failure)
-- **Definition**: The infrastructure is healthy, but the submitted cargo breaches security, validation, schema, or structural constraints.
-- **Triggers**:
-  - Malformed XML/JSON failing canonical XSD or JSON Schema validation per carrier contract.
-  - Corrupted archive (CRC failure, truncated ZIP, nested zip-slip traversal attempt).
-  - Unrecognized or unauthorized `carrier_code` / `carrier_id`.
+### 4.2 Data Exceptions Conduit (`DISCORD_WEBHOOK_OPS_EXCEPTIONS`)
+- **Conduit Variable**: `DISCORD_WEBHOOK_OPS_EXCEPTIONS`
+- **Target Channel**: `#cargo-ops-exceptions`
+- **Target Audience**: Business Operations / Carrier Support
+- **Domain & Triggers**: The infrastructure is healthy, but the submitted cargo breaches security, validation, schema, or structural constraints:
+  - Schema validation failures (malformed XML/JSON failing canonical XSD or JSON Schema validation per carrier contract).
+  - Corrupted archive payload structures (CRC check failure, truncated ZIP, nested zip-slip traversal attempt).
+  - Unknown or unauthorized carrier codes (`carrier_code` / `carrier_id`).
   - Empty payload or expansion bomb ratio exceeded.
-- **Resolution Path**: The payload is stamped with `quarantine_status = 'QUARANTINED'`, validation errors are stored as structured JSONB in `inspection_reports`, and a notification is dispatched to operations:
-  - **Destination**: Discord Webhook `#cargo-ops-exceptions`.
-  - **Payload**: Carrier ID, Carrier Code, Raw Filename, File Size, Content Digest (`content_digest`), Error Diagnostic Summary.
-  - **Action**: No engineering pager is alerted; business/cargo operations staff contact the shipping carrier/vendor for re-transmission.
+- **Payload Content**:
+  - Carrier code
+  - Payload UUID
+  - Raw filename
+  - Human-readable inspection error list (strictly **no stack traces**)
+- **Operational Resolution Path**: The payload is stamped with `quarantine_status = 'QUARANTINED'`, validation errors are stored as structured JSONB in `inspection_reports`, and a notification is dispatched to operations. No engineering pager is alerted; business/cargo operations staff contact the shipping carrier/vendor for re-transmission.
+
+### 4.3 Decoupled Operational Conduit Routing Matrix
+
+The operational notification conduits are strictly decoupled at configuration, payload, and transport levels to maintain clean separation of concerns:
+
+| Dimension | Data Exceptions Conduit | Technical Faults Conduit |
+| :--- | :--- | :--- |
+| **Config Env Var** | `DISCORD_WEBHOOK_OPS_EXCEPTIONS` | `DISCORD_WEBHOOK_TECH_FAULTS` |
+| **Target Channel** | `#cargo-ops-exceptions` | `#harbor-tech-faults` (or `#harbor-sre-alerts`) |
+| **Primary Audience** | Business Operations / Carrier Support | Engineering / SRE |
+| **Domain Scope** | Schema validation failures, malformed manifests, corrupted archive payload structures, unknown/unauthorized carrier codes | Infrastructure failures, HikariCP connection pool exhaustion, database downtime, object storage socket/timeout errors, scratch disk capacity alerts, unhandled runtime exceptions |
+| **Payload Content** | Carrier code, payload UUID, raw filename, human-readable inspection error list (**no stack traces**) | Severity level, fault type, payload UUID (if associated), host/pod node ID, full stack trace, retry backoff state |
+| **Ledger Lifecycle State** | Transitions payload to `QUARANTINED` with diagnostic report | Retains current status (`DOCKED` / `INSPECTING`) with retry backoff |
+| **Escalation Trigger** | Carrier re-transmission request / vendor contract inquiry | PagerDuty Tier 1 escalation / SRE incident response |
 
 ---
 
@@ -396,7 +430,7 @@ The local development environment (`deploy/minikube/`) replicates the production
 3. **`harbor-master-approach`**: Pod exposing ingress ports for HTTP and polling `mock-sftp-dock` berths.
 4. **`harbor-master-stevedore`**: Worker deployment consuming docked intake jobs from the perimeter ledger.
 5. **ConfigMaps & Secrets**:
-   - `harbor-config`: Log levels, schema directory paths, expansion caps, webhook endpoints.
+   - `harbor-config`: Log levels, schema directory paths, expansion caps, webhook endpoints (`DISCORD_WEBHOOK_OPS_EXCEPTIONS`, `DISCORD_WEBHOOK_TECH_FAULTS`).
    - `harbor-secrets`: Database credentials, SFTP private keys, berth connection tokens.
 
 ---
@@ -443,5 +477,5 @@ Phase 5: signal-tower & Discharge Orchestration (DischargeRoute dispatch & telem
 
 5. **Phase 5: `signal-tower` & Discharge Orchestration**
    - Build manifest dispatch pipeline routing `ADMITTED` payloads along configured `DischargeRoutes`.
-   - Implement Discord webhook dispatcher for `QUARANTINED` cargo alerts to `#cargo-ops-exceptions`.
+   - Implement decoupled Discord webhook dispatchers for `QUARANTINED` cargo alerts to `#cargo-ops-exceptions` (`DISCORD_WEBHOOK_OPS_EXCEPTIONS`) and technical/infrastructure faults to `#harbor-tech-faults` (`DISCORD_WEBHOOK_TECH_FAULTS`).
    - Package Minikube deployment manifests, mock SFTP server, and end-to-end integration tests.
