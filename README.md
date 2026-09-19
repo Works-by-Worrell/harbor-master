@@ -2,7 +2,7 @@
 
 Harbor Master is a high-throughput, multi-protocol cargo intake, quarantine, and manifest-validation engine designed to secure spaceport and maritime ingress artifacts before admitting them to downstream fleet operations.
 
-Every payload entering the perimeter is treated as untrusted, isolated immediately upon arrival, fingerprinted via SHA-256 cryptographic verification, inspected through deterministic zero-trust validation sieves, and routed accordingly.
+Every payload entering the perimeter is treated as untrusted, isolated immediately upon arrival into an ephemeral quarantine prefix, fingerprinted via pluggable algorithm-prefixed content digests (`content_digest`), inspected through deterministic zero-trust validation sieves, and routed accordingly.
 
 For comprehensive architectural design, service boundaries, database schemas, and operational runbooks, see the [Architecture Specification & System Manifest](docs/SPEC.md).
 
@@ -13,9 +13,13 @@ For comprehensive architectural design, service boundaries, database schemas, an
 - **The Four Pillars of Port Logistics**:
   - **`Berths`**: Transport/connection channels governing protocols, network endpoints, authentication secrets (SFTP, S3, HTTP streams), and connection pooling bounds.
   - **`Carriers`**: Intake sources and shipping partner identities defining drop-zone root paths, intake schedules, and expected manifest schemas.
-  - **`DockedPayloads` (`docked_payloads`)**: Immutable perimeter ledger capturing SHA-256 fingerprints, payload byte sizes, raw filenames, arrival timestamps, quarantine status lifecycle (`DOCKED`, `INSPECTING`, `QUARANTINED`, `ADMITTED`), and inspection reports.
+  - **`DockedPayloads` (`docked_payloads`)**: Immutable perimeter ledger capturing algorithm-prefixed content digests (`content_digest`), payload byte sizes, raw filenames, arrival timestamps, quarantine status lifecycle (`DOCKED`, `INSPECTING`, `QUARANTINED`, `ADMITTED`), and inspection reports.
   - **`DischargeRoutes`**: Post-quarantine routing destinations governing where verified, extracted cargo is dispatched (target storage buckets, event streams, downstream fulfillment services).
 - **Zero-Trust Perimeter Ledger (`docked_payloads`)**: An immutable PostgreSQL perimeter ledger capturing every payload observed at the edge to protect downstream workers from unvetted load, malformed inputs, and malicious drops while guaranteeing audit provenance.
+- **Direct-to-Storage Streaming Architecture**: Harbor Master **NEVER** buffers payloads into JVM heap memory. Byte streams are piped directly from ingress conduits (SFTP poller, chunked HTTP) to object storage or scratch volumes using small, bounded stream buffers (e.g. 64KB chunks).
+- **Lean Memory Cgroups & Payload-Size Invariance**: Ephemeral worker containers execute with bounded JVM heap (`-Xmx512m`) and container memory limits (`768Mi`), rendering payload file size completely irrelevant (50MB vs 50GB both run within 512MB RAM without GC pressure or OOM termination).
+- **Zero-CPU Native Digest Capture**: Captures storage-native checksums (e.g. GCS CRC32C, AWS S3 ETag/MD5) directly from storage adapter response metadata upon stream completion at zero extra CPU cost, persisted as algorithm-prefixed fingerprints in `content_digest` (e.g. `crc32c:a1b2c3d4`, `md5:...`, `sha256:...`).
+- **Quarantine Storage Lifecycle**: Payloads land in an ephemeral intake/quarantine storage prefix. Promotion to admitted cargo is an instantaneous server-side pointer flip/move in object storage, eliminating redundant network byte transfers.
 - **Uncle Bob Clean Architecture**: Strict inward dependency flow with decoupled transport protocols, immutable domain models, and swappable infrastructure adapters.
 - **Streaming Resource Isolation**: Memory-bounded ZIP64 streaming extraction and validation (`stevedore-extractor`) preventing container Out-Of-Memory (OOM) failures under heavy cargo drops.
 - **Deterministic Binary Failure Routing**:
