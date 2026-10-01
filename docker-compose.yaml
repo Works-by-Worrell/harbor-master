@@ -2,3 +2,4 @@ name: harbor-master
 
 include:
   - deploy/local/services/postgres.yaml
+  - deploy/local/services/vault.yaml
