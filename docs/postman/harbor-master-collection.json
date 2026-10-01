@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "harbor-master-collection-v2-1",
     "name": "Harbor Master Operations API Collection",
-    "description": "Postman Collection v2.1.0 for Harbor Master perimeter gateway, Kong OAuth2, HashiCorp Vault, and MinIO S3 cluster operations across Tailscale mesh.",
+    "description": "Postman Collection v2.1.0 for Harbor Master perimeter gateway, Kong OAuth2, HashiCorp Vault, and LocalStack S3 cluster operations across Tailscale mesh.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -22,8 +22,8 @@
       "type": "string"
     },
     {
-      "key": "minio_url",
-      "value": "http://100.70.72.19:9000",
+      "key": "s3_url",
+      "value": "http://100.70.72.19:4566",
       "type": "string"
     },
     {
@@ -248,19 +248,18 @@
       "response": []
     },
     {
-      "name": "[MinIO] 07 - MinIO Cluster Liveness",
+      "name": "[S3 Storage] 07 - LocalStack S3 Healthcheck",
       "request": {
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "{{minio_url}}/minio/health/live",
+          "raw": "{{s3_url}}/_localstack/health",
           "host": [
-            "{{minio_url}}"
+            "{{s3_url}}"
           ],
           "path": [
-            "minio",
-            "health",
-            "live"
+            "_localstack",
+            "health"
           ]
         }
       },

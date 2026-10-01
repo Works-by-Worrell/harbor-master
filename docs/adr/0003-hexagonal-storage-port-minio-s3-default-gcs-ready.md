@@ -1,4 +1,4 @@
-# ADR 0003: Hexagonal Storage Port with MinIO S3 Default and GCS Compatibility
+# ADR 0003: Hexagonal Storage Port with S3 Default (LocalStack Local Engine) and GCS Compatibility
 
 * **Status:** APPROVED
 * **Date:** 2026-10-01
@@ -22,7 +22,8 @@ We establish a **Hexagonal Storage Architecture** anchored by a domain port:
 
 2. **Default Local & S3 Adapter**:
    - Implement `S3CargoStorageAdapter` using the AWS Java SDK v2 (`software.amazon.awssdk:s3`).
-   - Use **MinIO** as the default storage engine for local development and integration tests, complete with MinIO Web Console enabled on port `9001` for direct visual inspection of quarantine and admitted buckets.
+   - Use **LocalStack S3** on port `4566` as the active local S3 engine for local development and integration tests, providing faithful AWS S3 API semantics and container initialization hooks for `harbor-quarantine` and `harbor-admitted` buckets.
+   - Maintain compatibility with standard S3-compliant endpoints including MinIO and AWS production S3.
 
 3. **GCS Adapter Compatibility**:
    - Maintain the structural interface contracts such that a `GcsCargoStorageAdapter` (using `com.google.cloud:google-cloud-storage`) can be plugged in without modifying any domain or application logic.
@@ -30,10 +31,10 @@ We establish a **Hexagonal Storage Architecture** anchored by a domain port:
 ## Consequences
 
 ### Positive
-- **Dual-Cloud Mastery**: Seamless portability across AWS S3, MinIO, and Google Cloud Storage.
-- **Local Developer Experience**: Instant visual inspection of bucket contents, quarantine trees, and admitted manifests via the MinIO Web Console (`localhost:9001`).
+- **Cloud Fidelity & Portability**: Seamless portability across AWS S3, LocalStack S3 emulation, and Google Cloud Storage.
+- **Local S3 Emulation**: Direct validation of AWS Java SDK v2 client configurations against LocalStack on port `4566` without cloud egress costs.
 - **Clean Architecture Adherence**: Storage technology details remain outside the domain boundary; domain and pipeline stages depend only on `CargoStoragePort`.
 - **Streaming Efficiency**: Native support for zero-heap streaming and server-side object promotion across storage backends.
 
 ### Negative / Trade-offs
-- **Adapter Maintenance**: Requires maintaining and testing adapter implementations against both AWS S3/MinIO and GCS SDKs.
+- **Adapter Maintenance**: Requires maintaining and testing adapter implementations against both AWS S3/LocalStack and GCS SDKs.

@@ -19,7 +19,7 @@ flowchart TD
 
     subgraph DataPlane ["Message Backbone & Storage"]
         REDPANDA["Redpanda Kafka :9092 / :19092<br/>(Console :8080)"]
-        MINIO["MinIO S3 :9000<br/>(Console :9001)"]
+        LOCALSTACK["LocalStack S3 :4566<br/>(AWS S3 Emulation)"]
     end
 
     subgraph SecurityPersistence ["Secrets & State Persistence"]
@@ -34,7 +34,7 @@ flowchart TD
     KONG --> POSTGRES
     KONG --> REDPANDA
     VAULT --> SFTP
-    SFTP --> MINIO
+    SFTP --> LOCALSTACK
 ```
 
 ### 1.1 Cluster Lifecycle Commands
@@ -47,7 +47,7 @@ To bring up the entire local infrastructure stack in detached mode:
 docker compose up -d
 ```
 
-Compose will automatically evaluate includes, wait for database readiness, execute Kong database schema migrations (`harbor-kong-migrations`), execute MinIO bucket initialization (`harbor-minio-init`), and spin up all operational consoles.
+Compose will automatically evaluate includes, wait for database readiness, execute Kong database schema migrations (`harbor-kong-migrations`), execute LocalStack S3 bucket initialization (`01-init-s3.sh`), and spin up all operational consoles.
 
 #### Checking Cluster Health & Status
 Verify that all containers are healthy and running:
@@ -61,8 +61,7 @@ Expected healthy output:
 NAME                     IMAGE                                  COMMAND                  SERVICE             CREATED         STATUS                   PORTS
 harbor-kong              kong:3.7-ubuntu                        "/docker-entrypoint.…"   kong                1 minute ago    Up 1 minute (healthy)    0.0.0.0:8000->8000/tcp, 0.0.0.0:8001->8001/tcp
 harbor-kong-migrations   kong:3.7-ubuntu                        "/docker-entrypoint.…"   kong-migrations     1 minute ago    Exited (0)               
-harbor-minio             minio/minio:RELEASE.2024-05-28T07-15-04Z "minio server /data…" minio               1 minute ago    Up 1 minute (healthy)    0.0.0.0:9000->9000/tcp, 0.0.0.0:9001->9001/tcp
-harbor-minio-init        minio/mc:latest                        "/bin/sh /scripts/01…"   minio-init          1 minute ago    Exited (0)               
+harbor-localstack        localstack/localstack:latest           "docker-entrypoint.s…"   localstack          1 minute ago    Up 1 minute (healthy)    0.0.0.0:4566->4566/tcp
 harbor-postgres          postgres:16-alpine                     "docker-entrypoint.s…"   postgres            1 minute ago    Up 1 minute (healthy)    0.0.0.0:5432->5432/tcp
 harbor-redpanda          docker.redpanda.com/redpandadata/redpanda:v24.1.8 "redpanda start --sm…" redpanda   1 minute ago    Up 1 minute (healthy)    0.0.0.0:9092->9092/tcp, 0.0.0.0:9644->9644/tcp, 0.0.0.0:19092->19092/tcp
 harbor-redpanda-console  docker.redpanda.com/redpandadata/console:v2.6.0  "/app/console"         redpanda-console    1 minute ago    Up 1 minute              0.0.0.0:8080->8080/tcp
@@ -94,8 +93,7 @@ docker compose down -v
 | **Kong Admin API** | `harbor-kong` | `8001` | `8001` | REST | None (Dev / Local) | `http://localhost:8001/status` |
 | **PostgreSQL** | `harbor-postgres` | `5432` | `5432` | PostgreSQL wire | `harbor_admin` / `harbor_password` (`harbor_db`)<br/>`kong` / `kong_password` (`kong_db`) | `localhost:5432` |
 | **HashiCorp Vault** | `harbor-vault` | `8200` | `8200` | HTTP REST / UI | Token: `harbor-vault-root-token` | `http://localhost:8200/ui` |
-| **MinIO S3 API** | `harbor-minio` | `9000` | `9000` | S3 REST API | `harbor_admin` / `harbor_password` | `http://localhost:9000` |
-| **MinIO Console** | `harbor-minio` | `9001` | `9001` | Web UI | `harbor_admin` / `harbor_password` | `http://localhost:9001` |
+| **LocalStack S3 API** | `harbor-localstack` | `4566` | `4566` | S3 REST API / AWS SDK | Key: `test` / Secret: `test` (Region: `us-east-1`) | `http://localhost:4566` (`/_localstack/health`) |
 | **Redpanda Kafka** | `harbor-redpanda` | `19092` (ext)<br/>`9092` (int) | `9092` | Kafka Protocol | Anonymous / Dev | `localhost:19092` |
 | **Redpanda Admin** | `harbor-redpanda` | `9644` | `9644` | REST | Anonymous / Dev | `http://localhost:9644/v1/status/ready` |
 | **Redpanda Console** | `harbor-redpanda-console` | `8080` | `8080` | Web UI | None | `http://localhost:8080` |
@@ -113,7 +111,7 @@ For testing Harbor Master across local environments and Tailscale mesh nodes, a 
   - `[Kong Admin] 03 & 04`: Queries registered consumers and credentials.
   - `[Cargo Ingress] 05 - Submit Docked Payload`: Sends authenticated JSON manifest with bearer token.
   - `[Vault] 06 - Query Inbound SFTP Berth Credentials`: Reads KV v2 secrets from HashiCorp Vault.
-  - `[MinIO] 07 - MinIO Cluster Liveness`: Checks S3 object storage health.
+  - `[S3 Storage] 07 - LocalStack S3 Healthcheck`: Checks LocalStack S3 engine and service health.
 
 ---
 
@@ -503,10 +501,20 @@ curl -s -H "X-Vault-Token: harbor-vault-root-token" \
   http://localhost:8200/v1/secret/data/berths/titan-remote-sftp | jq .data.data
 ```
 
-#### Read MinIO S3 Root Credentials
+#### Read LocalStack S3 Credentials
 ```bash
 curl -s -H "X-Vault-Token: harbor-vault-root-token" \
-  http://localhost:8200/v1/secret/data/storage/minio | jq .data.data
+  http://localhost:8200/v1/secret/data/storage/s3 | jq .data.data
+```
+
+Expected output:
+```json
+{
+  "access_key": "test",
+  "endpoint": "http://localstack:4566",
+  "region": "us-east-1",
+  "secret_key": "test"
+}
 ```
 
 ---
@@ -539,31 +547,32 @@ curl -s -H "X-Vault-Token: harbor-vault-root-token" \
 
 ---
 
-## 5. MinIO S3 & Redpanda Topic Inspection
+## 5. LocalStack S3 & Redpanda Topic Inspection
 
-### 5.1 MinIO S3 Object Storage Inspection
+### 5.1 LocalStack S3 Object Storage Inspection
 
 Harbor Master maintains strict quarantine lifecycle storage:
 - `harbor-quarantine`: Ephemeral landing bucket where unvetted payload archives land during direct-to-storage streaming.
 - `harbor-admitted`: Permanent promotion bucket where validated cargo is promoted via zero-copy server-side metadata move.
 
-#### Accessing the MinIO Web Console
-1. Navigate to `http://localhost:9001` in your browser.
-2. Sign in with:
-   - **Username:** `harbor_admin`
-   - **Password:** `harbor_password`
-3. Verify both `harbor-quarantine` and `harbor-admitted` buckets exist.
-
-#### Inspecting Buckets via MinIO Client (`mc` CLI inside container)
+#### Verifying LocalStack S3 Service Health
+Check that the LocalStack S3 emulator service is initialized and responding:
 ```bash
-# List all buckets
-docker exec -it harbor-minio-init mc ls local/
+curl -s http://localhost:4566/_localstack/health | jq .
+```
+
+#### Inspecting Buckets via LocalStack CLI (`awslocal` / AWS CLI)
+```bash
+# List all buckets via container awslocal
+docker exec -it harbor-localstack awslocal s3 ls
 
 # List contents of the quarantine bucket
-docker exec -it harbor-minio-init mc ls local/harbor-quarantine/
+docker exec -it harbor-localstack awslocal s3 ls s3://harbor-quarantine/
 
-# Inspect object metadata and tags
-docker exec -it harbor-minio-init mc stat local/harbor-quarantine/<object_name>
+# Inspect object metadata via host AWS CLI (if installed)
+aws --endpoint-url=http://localhost:4566 s3api head-object \
+  --bucket harbor-quarantine \
+  --key <object_name>
 ```
 
 ---
@@ -660,6 +669,9 @@ docker compose logs -f redpanda
 
 # Stream logs for SFTP server
 docker compose logs -f sftp
+
+# Stream logs for LocalStack S3
+docker compose logs -f localstack
 ```
 
 ---
