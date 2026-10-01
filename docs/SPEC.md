@@ -479,3 +479,19 @@ Phase 5: signal-tower & Discharge Orchestration (DischargeRoute dispatch & telem
    - Build manifest dispatch pipeline routing `ADMITTED` payloads along configured `DischargeRoutes`.
    - Implement decoupled Discord webhook dispatchers for `QUARANTINED` cargo alerts to `#cargo-ops-exceptions` (`DISCORD_WEBHOOK_OPS_EXCEPTIONS`) and technical/infrastructure faults to `#harbor-tech-faults` (`DISCORD_WEBHOOK_TECH_FAULTS`).
    - Package Minikube deployment manifests, mock SFTP server, and end-to-end integration tests.
+
+---
+
+## 7. Architectural Decision Records (ADRs)
+
+All architectural decisions and systemic paradigm selections are formally cataloged in the [ADR Log](adr/README.md).
+
+| ADR | Title | Status | Scope |
+| :--- | :--- | :--- | :--- |
+| [ADR-0001](adr/0001-hybrid-perimeter-kong-oauth-and-kafka-event-backbone.md) | **Hybrid Perimeter Kong OAuth2 Gateway & Kafka Event Backbone** | `APPROVED` | Perimeter Ingress & Inter-Service Eventing |
+| [ADR-0002](adr/0002-modular-docker-compose-with-native-includes.md) | **Modular Docker Compose with Native Includes** | `APPROVED` | Local Dev Ergonomics & Service Isolation |
+| [ADR-0003](adr/0003-hexagonal-storage-port-minio-s3-default-gcs-ready.md) | **Hexagonal Storage Port (MinIO S3 Default, GCS Ready)** | `APPROVED` | Object Storage Abstraction & Emulation |
+| [ADR-0004](adr/0004-postgresql-multi-database-topology.md) | **PostgreSQL Multi-Database Topology** | `APPROVED` | Persistence Footprint & Gateway State |
+| [ADR-0005](adr/0005-zero-heap-streaming-pipeline-and-quarantine-lifecycle.md) | **Zero-Heap Streaming Pipeline & Quarantine Storage Lifecycle** | `APPROVED` | Memory Bounded I/O & Storage Promotion |
+| [ADR-0006](adr/0006-harbor-console-frontend-and-business-exception-triage.md) | **Harbor Console Frontend & Business Exception Triage** | `APPROVED` | Operator Radar & Quarantined Cargo Remediation |
+
