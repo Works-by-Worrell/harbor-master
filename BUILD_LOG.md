@@ -32,3 +32,18 @@ Engineering milestone and chronological execution log aboard Sovereign Rust.
 - Integrated `deploy/local/services/vault.yaml` into root orchestrator `docker-compose.yaml` include list.
 - Validated full compose topology via `docker compose config`.
 
+---
+
+## Milestone 3: Full Local Infrastructure Spine (Redpanda, MinIO, Kong, SFTP)
+* **Date:** 2026-10-01
+* **Engineer:** Arlo 'Grit' Vance (Chief Engineer) `[grit]`
+* **Status:** COMPLETED
+* **Architecture References:** ADR-0001 (Hybrid Perimeter Kong OAuth & Kafka Event Backbone), ADR-0002 (Modular Docker Compose Native Includes), ADR-0003 (Hexagonal Storage Port with MinIO S3)
+
+### Summary of Execution
+- Provisioned modular Redpanda streaming backbone manifest `deploy/local/services/redpanda.yaml` running `redpanda:v24.1.8` and `console:v2.6.0` with deterministic cluster healthcheck.
+- Provisioned modular MinIO S3 object storage manifest `deploy/local/services/minio.yaml` and bucket initialization script `deploy/local/bootstrap/minio/01-init-buckets.sh` establishing `harbor-quarantine` and `harbor-admitted` buckets.
+- Provisioned modular Kong Gateway manifest `deploy/local/services/kong.yaml` with automated database migration runner (`kong-migrations`) and OAuth2 bootstrap script `deploy/local/bootstrap/kong/01-setup-oauth.sh`.
+- Provisioned modular mock SFTP berth service `deploy/local/services/sftp.yaml` (`atmoz/sftp:latest`) with pre-configured vendor and carrier drop accounts.
+- Integrated all service manifests into root orchestrator `docker-compose.yaml`.
+- Validated full local deployment spine topology using `docker compose config`.
