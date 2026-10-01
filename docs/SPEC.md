@@ -506,3 +506,9 @@ To maintain ultra-lean local development compose stacks (<5s startup) while enfo
 - **Unified Maven Proxy & Registry (ADR-0009)**: All third-party dependencies (Maven Central, Gradle Plugin Portal) and internal hosted library releases (`io.worksbyworrell:common-domain`) are resolved via the unified `maven-public` endpoint (`https://repo.worksbyworrell.com/repository/maven-public/`) with NVMe LAN caching.
 - **Two-Tier Code Quality Gates (ADR-0010)**: Fast in-process Gradle verification (`ktlint`, `detekt`, `jacocoTestCoverageVerification` with an 80% coverage quality gate) coupled with centralized static analysis and security scanning on SonarQube (`https://sonar.worksbyworrell.com`).
 
+---
+
+## 8. Operational Runbooks & Security Procedures
+
+For step-by-step instructions on booting local clusters, configuring Kong OAuth2/JWT gatekeeping, provisioning carrier credentials, executing token handshakes, and inspecting Redpanda/MinIO/Vault, refer to the [Operational Runbook & Security Playbook](RUNBOOK.md).
+
