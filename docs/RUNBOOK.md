@@ -103,6 +103,20 @@ docker compose down -v
 
 ---
 
+### 1.3 Postman API Collection & Remote Mesh Operations
+
+For testing Harbor Master across local environments and Tailscale mesh nodes, a Postman Collection v2.1.0 is provided:
+- **Collection Path:** `docs/postman/harbor-master-collection.json`
+- **Capabilities:**
+  - `[Auth] 01 - Obtain OAuth2 Bearer Token (Client Credentials)`: Executes OAuth2 client credentials grant with automated post-response test script saving `access_token` to collection variables.
+  - `[Auth] 02 - Introspect OAuth2 Token`: Validates token active status with Kong Admin API.
+  - `[Kong Admin] 03 & 04`: Queries registered consumers and credentials.
+  - `[Cargo Ingress] 05 - Submit Docked Payload`: Sends authenticated JSON manifest with bearer token.
+  - `[Vault] 06 - Query Inbound SFTP Berth Credentials`: Reads KV v2 secrets from HashiCorp Vault.
+  - `[MinIO] 07 - MinIO Cluster Liveness`: Checks S3 object storage health.
+
+---
+
 ## 2. Kong OAuth2 & JWT Security Playbook
 
 Harbor Master uses Kong Gateway as its single perimeter boundary guard. All external ingress traffic (REST manifests, upload streams, carrier status queries) must negotiate OAuth2 credentials at Kong before hitting downstream Kotlin services (`signal-tower`, `approach-watcher`, `quarantine-validator`).
