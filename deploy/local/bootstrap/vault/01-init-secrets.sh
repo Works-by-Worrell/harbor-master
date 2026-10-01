@@ -17,7 +17,7 @@ if command -v vault > /dev/null 2>&1; then
   echo "Seeding secrets using vault CLI..."
   vault kv put secret/berths/inbound-sftp username="vendor_push" password="dock_password"
   vault kv put secret/berths/titan-remote-sftp username="titan_client" private_key="mock_ssh_key"
-  vault kv put secret/storage/minio access_key="harbor_admin" secret_key="harbor_password"
+  vault kv put secret/storage/s3 endpoint="http://localstack:4566" access_key="test" secret_key="test" region="us-east-1"
 else
   echo "Seeding secrets using REST API..."
   curl -s --fail --header "X-Vault-Token: ${VAULT_TOKEN}" \
@@ -32,8 +32,8 @@ else
 
   curl -s --fail --header "X-Vault-Token: ${VAULT_TOKEN}" \
        --request POST \
-       --data '{"data": {"access_key": "harbor_admin", "secret_key": "harbor_password"}}' \
-       "${VAULT_ADDR}/v1/secret/data/storage/minio"
+       --data '{"data": {"endpoint": "http://localstack:4566", "access_key": "test", "secret_key": "test", "region": "us-east-1"}}' \
+       "${VAULT_ADDR}/v1/secret/data/storage/s3"
 fi
 
 echo "Vault secrets initialized successfully."

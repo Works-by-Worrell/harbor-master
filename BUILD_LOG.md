@@ -47,3 +47,19 @@ Engineering milestone and chronological execution log aboard Sovereign Rust.
 - Provisioned modular mock SFTP berth service `deploy/local/services/sftp.yaml` (`atmoz/sftp:latest`) with pre-configured vendor and carrier drop accounts.
 - Integrated all service manifests into root orchestrator `docker-compose.yaml`.
 - Validated full local deployment spine topology using `docker compose config`.
+
+---
+
+## Milestone 4: S3 Object Storage Migration to LocalStack
+* **Date:** 2026-10-01
+* **Engineer:** Arlo 'Grit' Vance (Chief Engineer) `[grit]`
+* **Status:** COMPLETED
+* **Architecture References:** ADR-0002 (Modular Docker Compose Native Includes), ADR-0003 (Hexagonal Storage Port with AWS S3 Emulation)
+
+### Summary of Execution
+- Replaced standalone MinIO storage emulator with LocalStack S3 (`localstack/localstack:latest` on port `4566`).
+- Provisioned modular LocalStack service manifest `deploy/local/services/localstack.yaml` and initialization hook `deploy/local/bootstrap/localstack/01-init-s3.sh` running in `/etc/localstack/init/ready.d/` to automatically create `harbor-quarantine` and `harbor-admitted` buckets upon readiness.
+- Updated HashiCorp Vault secret seeding script `deploy/local/bootstrap/vault/01-init-secrets.sh` to populate `secret/storage/s3` with `endpoint: http://localstack:4566`, `access_key: test`, `secret_key: test`, and `region: us-east-1`.
+- Updated root orchestrator `docker-compose.yaml` include definition to swap MinIO for LocalStack.
+- Verified live end-to-end container health across all infrastructure services (PostgreSQL, Vault, Redpanda, LocalStack S3, Kong Gateway, SFTP) reporting healthy status.
+

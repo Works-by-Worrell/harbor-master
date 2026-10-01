@@ -4,6 +4,6 @@ include:
   - deploy/local/services/postgres.yaml
   - deploy/local/services/vault.yaml
   - deploy/local/services/redpanda.yaml
-  - deploy/local/services/minio.yaml
+  - deploy/local/services/localstack.yaml
   - deploy/local/services/kong.yaml
   - deploy/local/services/sftp.yaml
