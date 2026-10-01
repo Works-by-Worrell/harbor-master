@@ -1,0 +1,4 @@
+name: harbor-master
+
+include:
+  - deploy/local/services/postgres.yaml
