@@ -12,6 +12,7 @@ This directory documents the architectural decision records for the `harbor-mast
 | [0004](0004-postgresql-multi-database-topology.md) | **PostgreSQL Multi-Database Topology** | `APPROVED` | 2026-10-01 | Single PostgreSQL 16 container hosting isolated `harbor_db` and `kong_db` databases for optimal host footprint. |
 | [0005](0005-zero-heap-streaming-pipeline-and-quarantine-lifecycle.md) | **Zero-Heap Streaming Pipeline & Quarantine Storage Lifecycle** | `APPROVED` | 2026-10-01 | Zero-heap 64KB bounded streaming buffers, quarantine prefix landing, and server-side pointer flip promotion. |
 | [0006](0006-harbor-console-frontend-and-business-exception-triage.md) | **Harbor Console Frontend & Business Exception Triage** | `APPROVED` | 2026-10-01 | Vite + React + TS + Tailwind frontend for Live Cargo Radar and Quarantine Triage Bay (Retry / Override / Reject). |
+| [0007](0007-hashicorp-vault-for-externalized-secret-management.md) | **HashiCorp Vault for Externalized Secret Management** | `APPROVED` | 2026-10-01 | HashiCorp Vault (KV v2) on port 8200 with bootstrap seeding and unified SecretManagerPort in common-domain. |
 
 ---
 

@@ -494,4 +494,5 @@ All architectural decisions and systemic paradigm selections are formally catalo
 | [ADR-0004](adr/0004-postgresql-multi-database-topology.md) | **PostgreSQL Multi-Database Topology** | `APPROVED` | Persistence Footprint & Gateway State |
 | [ADR-0005](adr/0005-zero-heap-streaming-pipeline-and-quarantine-lifecycle.md) | **Zero-Heap Streaming Pipeline & Quarantine Storage Lifecycle** | `APPROVED` | Memory Bounded I/O & Storage Promotion |
 | [ADR-0006](adr/0006-harbor-console-frontend-and-business-exception-triage.md) | **Harbor Console Frontend & Business Exception Triage** | `APPROVED` | Operator Radar & Quarantined Cargo Remediation |
+| [ADR-0007](adr/0007-hashicorp-vault-for-externalized-secret-management.md) | **HashiCorp Vault for Externalized Secret Management** | `APPROVED` | Dynamic Credentials & Centralized Secrets Store |
 
