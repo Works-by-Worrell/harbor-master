@@ -495,4 +495,14 @@ All architectural decisions and systemic paradigm selections are formally catalo
 | [ADR-0005](adr/0005-zero-heap-streaming-pipeline-and-quarantine-lifecycle.md) | **Zero-Heap Streaming Pipeline & Quarantine Storage Lifecycle** | `APPROVED` | Memory Bounded I/O & Storage Promotion |
 | [ADR-0006](adr/0006-harbor-console-frontend-and-business-exception-triage.md) | **Harbor Console Frontend & Business Exception Triage** | `APPROVED` | Operator Radar & Quarantined Cargo Remediation |
 | [ADR-0007](adr/0007-hashicorp-vault-for-externalized-secret-management.md) | **HashiCorp Vault for Externalized Secret Management** | `APPROVED` | Dynamic Credentials & Centralized Secrets Store |
+| [ADR-0008](adr/0008-externalized-platform-hub-architecture.md) | **Externalized Shared Platform Hub Architecture** | `APPROVED` | Shared Platform Decoupling & Centralized Services |
+| [ADR-0009](adr/0009-unified-maven-proxy-group-and-artifact-registry.md) | **Unified Maven Proxy Group and Hosted Artifact Registry** | `APPROVED` | Fleet Artifact Management & Caching Proxy |
+| [ADR-0010](adr/0010-centralized-code-quality-gates-and-static-analysis.md) | **Centralized Code Quality Gates and Static Analysis** | `APPROVED` | Code Hygiene, Static Analysis & Coverage Gates |
+
+### 7.1 Platform Infrastructure & Quality Strategy
+
+To maintain ultra-lean local development compose stacks (<5s startup) while enforcing enterprise-grade code hygiene across the fleet, platform-level infrastructure is externalized to the LOGOS host platform hub (`*.worksbyworrell.com`):
+- **Centralized Platform Hub (ADR-0008)**: Shared services (Vault, Artifact Registry, SonarQube, CI runners) reside permanently on dedicated LOGOS host infrastructure behind Nginx SSL reverse proxy rather than bloating individual project runtime compose manifests.
+- **Unified Maven Proxy & Registry (ADR-0009)**: All third-party dependencies (Maven Central, Gradle Plugin Portal) and internal hosted library releases (`io.worksbyworrell:common-domain`) are resolved via the unified `maven-public` endpoint (`https://repo.worksbyworrell.com/repository/maven-public/`) with NVMe LAN caching.
+- **Two-Tier Code Quality Gates (ADR-0010)**: Fast in-process Gradle verification (`ktlint`, `detekt`, `jacocoTestCoverageVerification` with an 80% coverage quality gate) coupled with centralized static analysis and security scanning on SonarQube (`https://sonar.worksbyworrell.com`).
 

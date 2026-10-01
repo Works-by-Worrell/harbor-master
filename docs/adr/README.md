@@ -13,6 +13,9 @@ This directory documents the architectural decision records for the `harbor-mast
 | [0005](0005-zero-heap-streaming-pipeline-and-quarantine-lifecycle.md) | **Zero-Heap Streaming Pipeline & Quarantine Storage Lifecycle** | `APPROVED` | 2026-10-01 | Zero-heap 64KB bounded streaming buffers, quarantine prefix landing, and server-side pointer flip promotion. |
 | [0006](0006-harbor-console-frontend-and-business-exception-triage.md) | **Harbor Console Frontend & Business Exception Triage** | `APPROVED` | 2026-10-01 | Vite + React + TS + Tailwind frontend for Live Cargo Radar and Quarantine Triage Bay (Retry / Override / Reject). |
 | [0007](0007-hashicorp-vault-for-externalized-secret-management.md) | **HashiCorp Vault for Externalized Secret Management** | `APPROVED` | 2026-10-01 | HashiCorp Vault (KV v2) on port 8200 with bootstrap seeding and unified SecretManagerPort in common-domain. |
+| [0008](0008-externalized-platform-hub-architecture.md) | **Externalized Shared Platform Hub Architecture** | `APPROVED` | 2026-10-01 | Decouple platform tools to permanent LOGOS host behind Nginx SSL (*.worksbyworrell.com) keeping dev manifests lean (<5s startup). |
+| [0009](0009-unified-maven-proxy-group-and-artifact-registry.md) | **Unified Maven Proxy Group and Hosted Artifact Registry** | `APPROVED` | 2026-10-01 | Centralized repository manager hosting unified `maven-public` proxy group and hosted registry for private fleet libraries. |
+| [0010](0010-centralized-code-quality-gates-and-static-analysis.md) | **Centralized Code Quality Gates and Static Analysis** | `APPROVED` | 2026-10-01 | Two-tier quality strategy: in-process ktlint, detekt, JaCoCo (80% coverage gate) and centralized SonarQube on sonar.worksbyworrell.com. |
 
 ---
 
