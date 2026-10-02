@@ -1,0 +1,18 @@
+services:
+  sftp:
+    image: atmoz/sftp:latest
+    container_name: harbor-sftp
+    command: vendor_push:dock_password:1001:1001:inbox titan_shipping:dock_password:1002:1002:exports,archive
+    ports:
+      - "2222:22"
+    volumes:
+      - sftp_data:/home
+    networks:
+      - harbor-net
+
+volumes:
+  sftp_data:
+
+networks:
+  harbor-net:
+    driver: bridge

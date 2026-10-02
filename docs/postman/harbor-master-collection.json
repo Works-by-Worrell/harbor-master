@@ -1,0 +1,269 @@
+{
+  "info": {
+    "_postman_id": "harbor-master-collection-v2-1",
+    "name": "Harbor Master Operations API Collection",
+    "description": "Postman Collection v2.1.0 for Harbor Master perimeter gateway, Kong OAuth2, HashiCorp Vault, and LocalStack S3 cluster operations across Tailscale mesh.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "gateway_url",
+      "value": "http://100.70.72.19:8000",
+      "type": "string"
+    },
+    {
+      "key": "admin_url",
+      "value": "http://100.70.72.19:8001",
+      "type": "string"
+    },
+    {
+      "key": "vault_url",
+      "value": "http://100.70.72.19:8200",
+      "type": "string"
+    },
+    {
+      "key": "s3_url",
+      "value": "http://100.70.72.19:4566",
+      "type": "string"
+    },
+    {
+      "key": "client_id",
+      "value": "carrier_titan_id",
+      "type": "string"
+    },
+    {
+      "key": "client_secret",
+      "value": "carrier_titan_secret",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "vault_token",
+      "value": "harbor-vault-root-token",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "[Auth] 01 - Obtain OAuth2 Bearer Token (Client Credentials)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "if (jsonData.access_token) {",
+              "    pm.collectionVariables.set(\"access_token\", jsonData.access_token);",
+              "    console.log(\"Captured access_token: \" + jsonData.access_token);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "client_credentials",
+              "type": "text"
+            },
+            {
+              "key": "client_id",
+              "value": "{{client_id}}",
+              "type": "text"
+            },
+            {
+              "key": "client_secret",
+              "value": "{{client_secret}}",
+              "type": "text"
+            },
+            {
+              "key": "scope",
+              "value": "cargo:write",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{gateway_url}}/oauth/token",
+          "host": [
+            "{{gateway_url}}"
+          ],
+          "path": [
+            "oauth",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "[Auth] 02 - Introspect OAuth2 Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{admin_url}}/oauth2_tokens/introspection",
+          "host": [
+            "{{admin_url}}"
+          ],
+          "path": [
+            "oauth2_tokens",
+            "introspection"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "[Kong Admin] 03 - List Registered Consumers",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{admin_url}}/consumers",
+          "host": [
+            "{{admin_url}}"
+          ],
+          "path": [
+            "consumers"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "[Kong Admin] 04 - List OAuth2 Credentials",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{admin_url}}/consumers/carrier-titan/oauth2",
+          "host": [
+            "{{admin_url}}"
+          ],
+          "path": [
+            "consumers",
+            "carrier-titan",
+            "oauth2"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "[Cargo Ingress] 05 - Submit Docked Payload (Protected)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"filename\": \"manifest_titan_20261001.zip\", \"carrier_code\": \"CRR-TITAN\", \"declared_byte_size\": 42100}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{gateway_url}}/api/v1/cargo/docked",
+          "host": [
+            "{{gateway_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "cargo",
+            "docked"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "[Vault] 06 - Query Inbound SFTP Berth Credentials",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Vault-Token",
+            "value": "{{vault_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{vault_url}}/v1/secret/data/berths/inbound-sftp",
+          "host": [
+            "{{vault_url}}"
+          ],
+          "path": [
+            "v1",
+            "secret",
+            "data",
+            "berths",
+            "inbound-sftp"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "[S3 Storage] 07 - LocalStack S3 Healthcheck",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{s3_url}}/_localstack/health",
+          "host": [
+            "{{s3_url}}"
+          ],
+          "path": [
+            "_localstack",
+            "health"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

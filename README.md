@@ -79,3 +79,4 @@ harbor-master/
 ## Documentation
 
 - [Architecture Specification (`docs/SPEC.md`)](docs/SPEC.md) — Comprehensive technical architecture, PostgreSQL schema design, failure classification taxonomy, container topologies, and clean-room roadmap.
+- [Operational Runbook & Security Playbook (`docs/RUNBOOK.md`)](docs/RUNBOOK.md) — Local infrastructure orchestration, Kong OAuth2/JWT security configuration, HashiCorp Vault secrets management, and diagnostic errata.
