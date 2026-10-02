@@ -1,6 +1,6 @@
 plugins {
     kotlin("jvm") version "2.1.10" apply false
-    id("org.sonarqube") version "5.1.0.4882"
+    id("org.sonarqube") version "6.0.1.5171"
     id("io.gitlab.arturbosch.detekt") version "1.23.7"
     id("org.jlleitschuh.gradle.ktlint") version "12.1.2"
     jacoco
