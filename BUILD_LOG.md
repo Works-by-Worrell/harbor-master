@@ -63,3 +63,24 @@ Engineering milestone and chronological execution log aboard Sovereign Rust.
 - Updated root orchestrator `docker-compose.yaml` include definition to swap MinIO for LocalStack.
 - Verified live end-to-end container health across all infrastructure services (PostgreSQL, Vault, Redpanda, LocalStack S3, Kong Gateway, SFTP) reporting healthy status.
 
+---
+
+## Milestone 5: Gradle Multi-Module Spine & Common Domain Module
+* **Date:** 2026-10-01
+* **Engineer:** Arlo 'Grit' Vance (Chief Engineer) `[grit]`
+* **Status:** COMPLETED
+* **Architecture References:** ADR-0003 (Hexagonal Architecture Ports & Adapters), ADR-0005 (Immutable Docked Payload State Machine), ADR-0006 (Zero-Heap Reactive Streaming)
+
+### Summary of Execution
+- Scaffolded root multi-module `build.gradle.kts` with SonarQube, Detekt 1.23.7, Ktlint 12.1.2, Jacoco, and Maven Publishing configured for Forge packages (`packages.worksbyworrell.com`).
+- Enforced Java 21 Toolchain, strict nullability compiler options (`-Xjsr305=strict`, `-opt-in=kotlin.RequiresOptIn`), and automated 80.0% minimum branch and line coverage verification across all subprojects.
+- Authored clean root `detekt.yml` configuration standardizing code complexity, styling, and naming conventions for Kotlin 2.1.
+- Implemented pure Kotlin Hexagonal Domain model in `:modules:common-domain`:
+  - **Models & Value Classes:** `BerthId`, `BerthType`, `Berth`, `CarrierCode`, `CarrierStatus`, `CarrierRateLimit`, `Carrier`, `PayloadId`, `QuarantineHash`, `PayloadStatus`, `DockedPayload`, `CargoEnvelope`, `RouteDestination`, `DischargeRoute`.
+  - **State Machine Transitions:** Immutable pure transition functions on `DockedPayload` (`quarantine`, `startExtraction`, `startValidation`, `admit`, `reject`, `discharge`) enforcing valid lifecycle progression and rejection paths.
+  - **Domain Exceptions:** Typed `HarborException` sealed hierarchy with standard error codes (`QUARANTINE_VIOLATION`, `PAYLOAD_CORRUPTED`, `UNREGISTERED_CARRIER`, `RATE_LIMIT_EXCEEDED`, `BERTH_UNAVAILABLE`, `STORAGE_ERROR`, `INVALID_PAYLOAD_STATE`).
+  - **Hexagonal Ports:** Zero-heap streaming storage port (`CargoStoragePort`), Vault credentials port (`SecretManagerPort`), and Kafka event publisher port (`EventPublisherPort`).
+- Implemented exhaustive unit test suite achieving 100% test pass rate, 100% branch coverage, and 93.6% line coverage (surpassing the 80.0% threshold).
+- Verified complete build, lint, and static analysis suite with zero errors via `./gradlew check jacocoTestCoverageVerification ktlintCheck detekt`.
+
+
